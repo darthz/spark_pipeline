@@ -1,61 +1,13 @@
-import os, re, random, requests
+import os
 import pandas as pd
-from functions import get_app_version
+from functions import get_app_version, camel_to_snake
 from spark_utils.delta_spark import initialize_spark
 from pyspark.sql.functions import lit, col, explode, to_date
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DateType, LongType
 from datetime import datetime
-from time import sleep
 
-
-SLEEP_TIME_RANGE = (1, 3)  
-
-
-def get_perdcomp_for_cnpjs(cnpj_list, data_inicial, data_final):
-    headers = {
-        "versao_app": f'"{get_app_version()}"',
-    }
-    params = {
-        "dataInicial": data_inicial,
-        "dataFinal": data_final,
-    }
-    results = []
-    total = len(cnpj_list)
-    for idx, cnpj in enumerate(cnpj_list, start=1):
-        cnpj_fix = str(cnpj).zfill(14)
-        print(f"perdcomp cnpj: {cnpj_fix} ({idx} de {total})")
-        try:
-            response = requests.get(
-                f"https://p-app-receita-federal.estaleiro.serpro.gov.br/servicos-rfb-apprfb-perdcomp/apprfb-perdcomp/consulta/ni/{cnpj_fix}",
-                params=params,
-                headers=headers,
-                timeout=20,
-            )
-            response.raise_for_status()
-            results.append(response.json())
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 412:
-                print(f"get_perdcomp: {cnpj_fix} - 412 Client Error: Precondition Failed")
-                results.append(None)
-            else:
-                print(f"get_perdcomp: {cnpj_fix} - {e}")
-                results.append(None)
-        except Exception as e:
-            print(f"get_perdcomp: {cnpj_fix} - {e}")
-            results.append(None)
-        sleep_time = random.uniform(*SLEEP_TIME_RANGE)
-        print(f"get_perdcomp: Sleeping for: {sleep_time:.2f} seconds")
-        sleep(sleep_time)
-    return results
-
-
-def camel_to_snake(name):
-    import re
-    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
-    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
 def save_to_delta_silver(spark, bronze_filename="perdcomp_bronze.parquet", silver_filename="perdcomp_silver"):
-    import os
     # Read parquet from bronze
     bronze_path = os.path.join("storage", "bronze", bronze_filename)
     df = spark.read.parquet(bronze_path)
@@ -100,10 +52,6 @@ def save_to_delta_gold(spark, silver_filename="perdcomp_silver", gold_filename="
     spark.stop()
 
 def save_perdcomp_to_parquet_bronze(data, filename="perdcomp_bronze.parquet"):
-
-    def camel_to_snake(name):
-        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
-        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
     output_dir = os.path.join("storage", "bronze")
     os.makedirs(output_dir, exist_ok=True)
