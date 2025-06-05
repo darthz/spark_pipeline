@@ -2,8 +2,8 @@ import os
 import pandas as pd
 from functions import get_app_version, camel_to_snake
 from spark_utils.delta_spark import initialize_spark
-from pyspark.sql.functions import lit, col, explode, to_date
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DateType, LongType
+from pyspark.sql.functions import lit, col, explode, to_date, trim, regexp_replace
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DateType, LongType, FloatType
 from datetime import datetime
 
 
@@ -29,11 +29,17 @@ def save_to_delta_gold(spark, silver_filename="perdcomp_silver", gold_filename="
 
     df = spark.read.format("delta").load(silver_path)
 
-    print("Colunas disponíveis na silver:", df.columns)
+    # Limpeza: remove espaços e tudo que não for dígito (opcional)
+    df = df.withColumn(
+        "numero_perdcomp",
+        regexp_replace(trim(col("numero_perdcomp")), "[^0-9]", "")
+    )
 
-    # Casts and column selection
+    # Filtra linhas onde numero_perdcomp ficou vazio após limpeza
+    df = df.filter(col("numero_perdcomp") != "")
+
     df_gold = df.select(
-        col("numero_perdcomp").cast(LongType()),
+        col("numero_perdcomp"),  # Mantém como string
         col("tipo_documento"),
         col("tipo_credito"),
         col("situacao"),

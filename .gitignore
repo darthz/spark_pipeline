@@ -1,5 +1,6 @@
 .env
 .venv/
+.cond/
 
 storage/bronze/*
 !storage/bronze/.gitkeep
@@ -12,3 +13,8 @@ storage/gold/*
 
 __pycache__/
 *.pyc
+
+src/app/test_s3.py
+resultado_cnpjs.json
+dados_api.json
+src/*.txt

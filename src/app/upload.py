@@ -5,12 +5,15 @@ from dotenv import load_dotenv
 
 def upload_gold_to_postgres(
     gold_filename="perdcomp_gold",
-    table_name="gold_jvs"
+    table_name="gold_jvs",
+    mode="append"  # "replace" para full load, "append" para append
 ):
     """
     Reads the gold layer data (Delta/Parquet) and inserts it into the Postgres table.
     Connection variables are read from .env:
       - PG_HOST, PG_PORT, PG_DB, PG_USER, PG_PASS, SCHEMA
+
+    mode: "replace" (full load) ou "append" (apenas adiciona)
     """
     # Load variables from .env
     load_dotenv()
@@ -25,6 +28,7 @@ def upload_gold_to_postgres(
     print(f"Starting upload to Postgres at {host}:{port}, database '{db}'")
     print(f"Target schema: {schema}")
     print(f"Target table: {table_name}")
+    print(f"Upload mode: {mode}")
     print(f"Reading gold file from: {os.path.join('storage', 'gold', gold_filename)}")
 
     # Gold file path
@@ -46,10 +50,13 @@ def upload_gold_to_postgres(
     try:
         engine = create_engine(conn_str)
         print("Database connection created. Starting data upload...")
-        df.to_sql(table_name, engine, if_exists="replace", index=False, schema=schema)
+        df.to_sql(table_name, engine, if_exists=mode, index=False, schema=schema)
         print(f"Data inserted into table {schema}.{table_name} successfully!")
     except Exception as e:
         print(f"Error inserting into Postgres: {e}")
 
 # Example usage:
-upload_gold_to_postgres()
+# Full load (replace)
+upload_gold_to_postgres(mode="replace", table_name="bahia_perdcomp")
+# Append
+# upload_gold_to_postgres(mode="append")
