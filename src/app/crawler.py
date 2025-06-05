@@ -3,6 +3,7 @@ from functions import get_app_version, cnpj_fixing
 from time import sleep
 import requests, random
 from io import StringIO
+import pandas as pd
 
 SLEEP_TIME_RANGE = (1, 3)
 
@@ -93,5 +94,9 @@ def get_perdcomp_for_cnpjs(data_inicial, filename, data_final=None, save_json=Tr
         with open("resultado_cnpjs.json", "w") as f:
             json.dump(saida_json, f, indent=2)
         print("Arquivo resultado_cnpjs.json salvo com sucesso.")
+    
+    df_results = pd.DataFrame(results)
+    df_results["provedor"] = filename.upper()
+
 
     return results
