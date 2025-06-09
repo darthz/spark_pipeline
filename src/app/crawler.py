@@ -45,7 +45,6 @@ def get_perdcomp_for_cnpjs(data_inicial, filename, data_final=None, save_json=Tr
 
     for idx, cnpj in enumerate(cnpj_list, start=1):
         cnpj_fix = cnpj_fixing(cnpj)
-        print(cnpj_fix)
         print(f"perdcomp cnpj: {cnpj_fix} ({idx} de {total})")
         try:
             response = requests.get(
@@ -100,3 +99,6 @@ def get_perdcomp_for_cnpjs(data_inicial, filename, data_final=None, save_json=Tr
 
 
     return results
+
+# data_inicial = "2010-01-01"
+# print(get_perdcomp_for_cnpjs(data_inicial, filename="cnpjs_test.txt"))

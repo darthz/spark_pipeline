@@ -1,86 +1,111 @@
-from build import (
-    save_perdcomp_to_parquet_bronze,
-    save_to_delta_silver,
-    save_to_delta_gold,
-)
-import time, os
-from crawler import get_perdcomp_for_cnpjs
-from datetime import date
+import os, boto3
 
-# # 2. Datas para consulta
+# Defina suas credenciais AWS aqui (NÃO SUBA ISSO PARA O GIT!)
+os.environ["AWS_ACCESS_KEY_ID"] = "3bc0d05a0bef4bf2b318ee4c5469eb05"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "8676829b449d47289e50a3470dcbe647"
+
+
+from build import (
+    save_raw_to_s3,
+    save_to_trusted,
+    save_to_refined,
+    save_to_enriched,
+)
+from crawler import get_perdcomp_for_cnpjs
+from datetime import date, datetime
+from spark_utils.delta_spark import initialize_spark
+
+def get_today_str():
+    return datetime.now().strftime("%Y%m%d")
+
+# 1. Parâmetros
 data_inicial = "2010-01-01"
 data_final = date.today().strftime("%Y-%m-%d")
+# raw_filename = f"perdcomp_raw_{get_today_str()}.parquet"
+# trusted_filename = f"perdcomp_trusted_{get_today_str()}"
+# refined_filename = f"perdcomp_refined_{get_today_str()}"
+# enriched_filename = f"perdcomp_enriched_{get_today_str()}"
 
-# # # 4. Consulta a API
-# empresas_ativas = ['ag', 'jvs']
-# for empresa in empresas_ativas:
-#     dados_api = get_perdcomp_for_cnpjs(data_inicial, filename=f"cnpjs_{empresa}.txt")
+s3 = boto3.client(
+    's3',
+    endpoint_url='https://s3.bhs.io.cloud.ovh.net',
+    aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+    aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+)
 
-dados_api = get_perdcomp_for_cnpjs(data_inicial, filename="cnpjs_jvs.txt")
+bucket = "drivalake"
+prefix = "perdcomp/src/"
+response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
 
-# from pandas import DataFrame
+print("Inicializando Spark...")
+spark = initialize_spark("TestPerdcompPipeline")
 
-# df = DataFrame(dados_api)
-# df.to_json(orient="records", force_ascii=False, indent=2, path_or_buf="dados_api.json")
-# print(df)
+print("Arquivos .txt em perdcomp/src:")
+txt_files = []
+for obj in response.get('Contents', []):
+    key = obj['Key']
+    if key.endswith('.txt'):
+        txt_files.append(os.path.basename(key))
 
-# # # 5. Salva bronze
-save_perdcomp_to_parquet_bronze(dados_api)
+for file in txt_files:
+    nome = file.replace("cnpjs_", "").replace(".txt", "")
+    print(f"Consultando API para {file}...")
+    dados_api = get_perdcomp_for_cnpjs(data_inicial, filename=file)
+    raw_filename = f'raw_{nome}_{get_today_str()}.parquet'
+    trusted_filename = f'trusted_{nome}_{get_today_str()}'
 
-# # # 3. Inicializa a sessão Spark
-# from spark_utils.delta_spark import initialize_spark
-# spark = initialize_spark("MeuApp")
-
-# # # # 6. Salva silver (lê bronze do disco)
-# try:
-#     save_to_delta_silver(spark)
-# except Exception as e:
-#     print(f"Erro ao salvar na camada silver: {e}")
-
-# # Aguarda alguns segundos para garantir que os dados sejam gravados
-# time.sleep(5)
-
-# # # 7. Salva gold
-# try:
-#     save_to_delta_gold(spark)
-# except Exception as e:
-#     print(f"Erro ao salvar na camada gold: {e}")
-
-# # spark.stop()
-
-# # # 8. Lê e exibe a camada gold
-# def read_delta_gold(gold_filename="perdcomp_gold"):
-#     """
-#     Lê os dados da camada gold e exibe no console.
-#     """
-#     spark = initialize_spark("ReadGold")
-#     gold_path = os.path.join("storage", "gold", gold_filename)
-#     try:
-#         df = spark.read.format("delta").load(gold_path)
-#         df.show(truncate=True)
-#     except Exception as e:
-#         print(f"Erro ao ler a camada gold: {e}")
-#     finally:
-#         spark.stop()
-
-# read_delta_gold()
+    save_raw_to_s3(dados_api, filename=raw_filename)
+    save_to_trusted(spark, raw_filename=raw_filename, trusted_filename=trusted_filename)
 
 
 
-# def read_bronze_head(n=10, bronze_filename="perdcomp_bronze.parquet"):
-#     """
-#     Lê e exibe os primeiros n registros da camada bronze.
-#     """
-#     import pandas as pd
-#     import os
 
-#     bronze_path = os.path.join("storage", "bronze", bronze_filename)
-#     try:
-#         df = pd.read_parquet(bronze_path)
-#         print(df.head(n))
-#     except Exception as e:
-#         print(f"Erro ao ler a camada bronze: {e}")
+# # Configure as credenciais e endpoint para S3-compatible service (OVH)
+# hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
+# hadoop_conf.set("fs.s3a.access.key", os.environ["AWS_ACCESS_KEY_ID"])
+# hadoop_conf.set("fs.s3a.secret.key", os.environ["AWS_SECRET_ACCESS_KEY"])
 
-# # # Exemplo de uso:
-# read_bronze_head()
+# # Configurações específicas para OVH Object Storage
+# hadoop_conf.set("fs.s3a.endpoint", "s3.bhs.io.cloud.ovh.net")  # Endpoint correto do OVH
+# hadoop_conf.set("fs.s3a.path.style.access", "true")  # Necessário para OVH
+# hadoop_conf.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+# hadoop_conf.set("fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
+
+# # Configurações adicionais para OVH
+# hadoop_conf.set("fs.s3a.connection.ssl.enabled", "true")
+# hadoop_conf.set("fs.s3a.attempts.maximum", "3")
+# hadoop_conf.set("fs.s3a.connection.establish.timeout", "5000")
+# hadoop_conf.set("fs.s3a.connection.timeout", "200000")
+
+
+
+
+# # 2. Consulta a API
+# print("Consultando API...")
+# dados_api = get_perdcomp_for_cnpjs(data_inicial, filename="cnpjs_test.txt")
+
+# # 3. Salva camada raw no S3
+# print("Salvando camada RAW...")
+# save_raw_to_s3(dados_api, filename=raw_filename)
+
+
+# print("Configurações S3A aplicadas para OVH Object Storage")
+
+# # # 5. Salva camada trusted
+# print("Salvando camada TRUSTED...")
+# save_to_trusted(spark, raw_filename=raw_filename, trusted_filename=trusted_filename)
+
+# # 6. Salva camada refined 
+# print("Salvando camada REFINED...")
+# # Corrigir: usar trusted_path em vez de trusted_filename
+# trusted_path = f"s3a://drivalake/perdcomp/storage/trusted/{trusted_filename}"
+# save_to_refined(spark, trusted_path=trusted_path, refined_filename=refined_filename)
+
+# # 7. Salva camada enriched (com grupos de CNPJs)
+# print("Salvando camada ENRICHED...")
+# refined_path = f"s3a://drivalake/perdcomp/storage/refined/{refined_filename}"
+# save_to_enriched(spark, refined_path=refined_path, enriched_base_filename=enriched_filename)
+
+# spark.stop()
+# print("Pipeline concluído!")
 

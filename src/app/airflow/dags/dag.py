@@ -1,135 +1,157 @@
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.operators.dummy import DummyOperator
+from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.utils.dates import days_ago
+from airflow.operators.python import BranchPythonOperator
 from datetime import datetime, timedelta
-import sys
-import os
-
-# Adiciona src/app ao sys.path de forma dinâmica, relativo ao diretório da DAG
-DAG_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC_APP_DIR = os.path.abspath(os.path.join(DAG_DIR, '../../'))
-if SRC_APP_DIR not in sys.path:
-    sys.path.append(SRC_APP_DIR)
-
-from build import (
-    save_perdcomp_to_parquet_bronze,
-    save_to_delta_silver,
-    save_to_delta_gold,
-)
-from crawler import get_perdcomp_for_cnpjs
-from spark_utils.delta_spark import initialize_spark
-from upload import upload_to_postgres
-
-CNPJS = [
-    # Adicione aqui os CNPJs desejados
-    "1755615000187","40619536000104","18507955000103",
-    "30280982000183","10371676000145","6261733000166","10346934000133","21664753000171","67417378000166","11958569000261","4783489000176",
-    "19885877000135","12877125000183","23502036000179","3403886000102","4349779000106","795840551","18291322000100","20768354000198","26884557000126","7390228000184","2831222000181","55688154000100",
-    "4393882000153","60708245000108","391774000185","22938642000179","5030619000148","14993677000182","27696783000146","52491578000191","1149654000124","156160000191","40568521000164","11966262000121",
-    "10992306000125","31750836000137","1550726000160","16127441000199","49865439000176","8731856000149","4537201000183","8756458000187","9454577000148","39450755000123","10457286000192","8869838000128",
-    "2610228000132","4379626000101","5286729800135","10656587000145","6142922000110","39680387000100","5483430400183","5681520200146","11220071000116","2795617000176","18148531000191","2804541000106",
-    "5819542000104","2804541000171","10745572000105","71856447000105","768471600102","4067045000134","5057134000162","4647152000183","50981984000107","20586692000109","7599639000184","8752211000192",
-    "4457158000146","7686376000140","2965685000136","6348242000157","7338348000132","2225976000150","920672000182","587560000191","5520336000107","10925538000160","35652796000141","5073731000180",
-    "29866813000140","10393765000192","5257763000136","6928275000176","3331941000104","1087414000162","903380800140","1246815500136","7588241000142","7552756000192","4216375400102","7530387000137",
-    "3560680000196","12022389000155","43472117000180","1807105000125","20524113000101","9302983000195","9407178000126","407831000182","5376097000155","17138684000195","2107838000104","788576000172",
-    "435078000139","4012676000156","5558376000130","3303041000145","3406379000176","20200813000132","2781385000105","41713539000175","2023762000156","7845867000197","3824177000109","4996419000156",
-    "2828786000165","5444461000177","2251736000168","4669078000154","4788356600172","3853809000154","2650993000169","534466000103","7659630300180","1952534800120","6488216000194","23449877000160",
-    "22654846000188","483500000162","17656356000180","2144838000184","8710025000190","637694000166","1506618400160","1321440900152","1849422000184","7464403000177","2539064000190","5048909500127",
-    "1692019100140","5974990300112","8703302000138","1249240400129","2948278000110","7882686000130","5017415000190","1409086000173","11044897000171","3397552300102","4254762000195","18986315000115",
-    "9593412000157","1749889000106","5971779000106","5680977500167","1663817000136","7625729000100","7634383000107","6326874000110","2913444001549","4331034000110","1675386000102","2756116000180",
-    "9648175000184","28135597000109","3565286300128","1559818400100","1757613000130","3569271600181","4367891000170","5911514000112","252980000194","1475591400177","1086061900120","4084183000121",
-    "8170585000108","2296529000120","4630822700108","1934213800105","7103313800135","2466858000171","3008421000157","4859521900107","9129893000144","6216543600198","60708245000108","6610485200137",
-    "1070407200173","3056900300101","5542442800153","3271462000131","3799259000132","4772661700152","7145275900153","2191286700193","5796023900120","5242262000186","1306735500140","5564485000114",
-    "4515727800105","931073000163","677435000194","3904691700162","3827515000158","2216897500166","7253492800167","4101500700164","5770091600171","1817453200100","4177198000134","1884375700102",
-    "5306949800105","3914594000134","2515705800174","2486328900130","8765523000130","1165665400194","7443784900163","1647589000187","2484505500160","5030619000148","40568521000164","30280982000183",
-    "10371676000145","6261733000166","10346934000133","21664753000171","67417378000166","11958569000261","4783489000176","19885877000135","12877125000183","23502036000179","3403886000102","4349779000106",
-    "18291322000100","20768354000198","26884557000126","7390228000184","2831222000181","55688154000100","4393882000153","60708245000108","22938642000179","5030619000148","14993677000182","27696783000146",
-    "52491578000191","1149654000124","40619536000104","18507955000103","156160000191","11966262000121","10992306000125","31750836000137","1550726000160","16127441000199","49865439000176","8731856000149",
-    "4537201000183","8756458000187","9454577000148","39450755000123","10457286000192","8869838000128","2610228000132","4379626000101","5286729800135","10656587000145","6142922000110","39680387000100",
-    "5483430400183","5681520200146","11220071000116","2795617000176","18148531000191","2804541000106","5819542000104","2804541000171","10745572000105","71856447000105","768471600102","4067045000134",
-    "5057134000162","4647152000183","50981984000107","20586692000109","7599639000184","8752211000192","4457158000146","7686376000140","2965685000136","6348242000157","7338348000132","2225976000150",
-    "920672000182","587560000191","5520336000107","10925538000160","35652796000141","5073731000180","29866813000140","10393765000192","5257763000136","6928275000176","3331941000104","1087414000162",
-    "903380800140","1246815500136","7588241000142","7552756000192","4216375400102","7530387000137","3560680000196","12022389000155","43472117000180","1807105000125","20524113000101","9302983000195",
-    "9407178000126","407831000182","5376097000155","17138684000195","2107838000104","788576000172","435078000139","4012676000156","5558376000130","3303041000145","3406379000176","20200813000132",
-    "2781385000105","41713539000175","2023762000156","7845867000197","3824177000109","4996419000156","2828786000165","5444461000177","2251736000168","4669078000154","4788356600172","3853809000154",
-    "2650993000169","534466000103","7659630300180","1952534800120","6488216000194","23449877000160","22654846000188","483500000162","17656356000180","2144838000184","8710025000190","637694000166",
-    "1506618400160","1321440900152","1849422000184","7464403000177","2539064000190","5048909500127","1692019100140","5974990300112","8703302000138","1249240400129","2948278000110","7882686000130",
-    "5017415000190","1409086000173","11044897000171","3397552300102","4254762000195","18986315000115","9593412000157","1749889000106","5971779000106","5680977500167","1663817000136","7625729000100",
-    "7634383000107","6326874000110","2913444001549","4331034000110","1675386000102","2756116000180","9648175000184","28135597000109","3565286300128","1559818400100","1757613000130","3569271600181",
-    "4367891000170","5911514000112","252980000194","1475591400177","1086061900120","4084183000121","8170585000108","2296529000120","4630822700108","1934213800105","7103313800135","2466858000171",
-    "3008421000157","4859521900107","9129893000144","6216543600198","60708245000108","6610485200137","1070407200173","3056900300101","5542442800153","3271462000131","3799259000132","4772661700152",
-    "7145275900153","2191286700193","5796023900120","5242262000186","1306735500140","5564485000114","4515727800105","931073000163","677435000194","3904691700162","3827515000158","2216897500166",
-    "7253492800167","4101500700164","5770091600171","1817453200100","4177198000134","1884375700102","5306949800105","3914594000134","2515705800174","2486328900130","8765523000130","1165665400194",
-    "7443784900163","1647589000187","2484505500160","5030619000148"
-]
 
 default_args = {
     'owner': 'airflow',
-    'start_date': datetime(2024, 1, 1),
+    'depends_on_past': False,
     'retries': 1,
+    'retry_delay': timedelta(minutes=10),
 }
+
+def choose_crawler_branch(execution_date, **kwargs):
+    # execution_date é um pendulum datetime
+    day = execution_date.day
+    if day % 7 == 0:
+        return 'run_crawler_ag'
+    elif day % 2 == 0:
+        return 'run_crawler_jvs'
+    else:
+        return 'skip_crawler'
+
+def choose_upload_branch(execution_date, **kwargs):
+    day = execution_date.day
+    if day % 7 == 0:
+        return 'upload_gold_ag'
+    elif day % 2 == 0:
+        return 'upload_gold_jvs'
+    else:
+        return 'skip_upload_gold'
 
 with DAG(
     dag_id='perdcomp_pipeline',
     default_args=default_args,
-    schedule_interval="0 0 */2 * *",  # a cada 2 dias à meia-noite
+    description='Pipeline PERDCOMP com triggers diferenciados para crawler',
+    schedule_interval='@daily',
+    start_date=days_ago(1),
     catchup=False,
-    description='Pipeline PERDCOMP bronze -> silver -> gold -> postgres',
+    tags=['perdcomp', 'etl'],
 ) as dag:
 
-    def extract_perdcomp(**context):
-        # Pega a data de execução do Airflow
-        exec_date = context['ds']  # formato 'YYYY-MM-DD'
-        data_final = datetime.strptime(exec_date, "%Y-%m-%d")
-        data_inicial = data_final - timedelta(days=2)
-        dados_api = get_perdcomp_for_cnpjs(
-            CNPJS,
-            data_inicial.strftime("%Y-%m-%d"),
-            data_final.strftime("%Y-%m-%d")
-        )
-        context['ti'].xcom_push(key='dados_api', value=dados_api)
+    start = DummyOperator(task_id='start')
 
-    def save_bronze(**context):
-        dados_api = context['ti'].xcom_pull(key='dados_api', task_ids='extract_perdcomp')
-        save_perdcomp_to_parquet_bronze(dados_api)
-
-    def save_silver():
-        spark = initialize_spark("Airflow-Silver")
-        save_to_delta_silver(spark)
-        spark.stop()
-
-    def save_gold():
-        spark = initialize_spark("Airflow-Gold")
-        save_to_delta_gold(spark)
-        spark.stop()
-
-    def upload_gold_to_postgres():
-        upload_to_postgres()
-
-    extract_data = PythonOperator(
-        task_id='extract_perdcomp',
-        python_callable=extract_perdcomp,
+    branch_crawler = BranchPythonOperator(
+        task_id='branch_crawler',
+        python_callable=choose_crawler_branch,
         provide_context=True,
     )
 
-    get_bronze = PythonOperator(
-        task_id='save_bronze',
-        python_callable=save_bronze,
+    run_crawler_jvs = DockerOperator(
+        task_id='run_crawler_jvs',
+        image='perdcomp_app:latest',
+        api_version='auto',
+        auto_remove=True,
+        command="python src/app/crawler.py --filename cnpjs_jvs.txt",
+        docker_url="unix://var/run/docker.sock",
+        network_mode="bridge",
+        environment={
+            # ...env vars if needed...
+        },
+        mount_tmp_dir=False,
+        mounts=[
+            # Mount volumes if needed
+        ],
+    )
+
+    run_crawler_ag = DockerOperator(
+        task_id='run_crawler_ag',
+        image='perdcomp_app:latest',
+        api_version='auto',
+        auto_remove=True,
+        command="python src/app/crawler.py --filename cnpjs_ag.txt",
+        docker_url="unix://var/run/docker.sock",
+        network_mode="bridge",
+        environment={
+            # ...env vars if needed...
+        },
+        mount_tmp_dir=False,
+        mounts=[
+            # Mount volumes if needed
+        ],
+    )
+
+    skip_crawler = DummyOperator(task_id='skip_crawler')
+
+    # Build pipeline (trusted, refined, enriched, upload) - sempre roda após o branch
+    build_pipeline = DockerOperator(
+        task_id='build_pipeline',
+        image='perdcomp_app:latest',
+        api_version='auto',
+        auto_remove=True,
+        command="python src/app/build.py",
+        docker_url="unix://var/run/docker.sock",
+        network_mode="bridge",
+        environment={
+            # ...env vars if needed...
+        },
+        mount_tmp_dir=False,
+        mounts=[
+            # Mount volumes if needed
+        ],
+    )
+
+    # Após build_pipeline, decidir upload
+    branch_upload = BranchPythonOperator(
+        task_id='branch_upload',
+        python_callable=choose_upload_branch,
         provide_context=True,
     )
 
-    get_silver = PythonOperator(
-        task_id='save_silver',
-        python_callable=save_silver,
+    upload_gold_jvs = DockerOperator(
+        task_id='upload_gold_jvs',
+        image='perdcomp_app:latest',
+        api_version='auto',
+        auto_remove=True,
+        command="python src/app/upload.py --table enriched_jvs --mode append",
+        docker_url="unix://var/run/docker.sock",
+        network_mode="bridge",
+        environment={
+            # ...env vars if needed...
+        },
+        mount_tmp_dir=False,
+        mounts=[
+            # Mount volumes if needed
+        ],
     )
 
-    get_gold = PythonOperator(
-        task_id='save_gold',
-        python_callable=save_gold,
+    upload_gold_ag = DockerOperator(
+        task_id='upload_gold_ag',
+        image='perdcomp_app:latest',
+        api_version='auto',
+        auto_remove=True,
+        command="python src/app/upload.py --table enriched_ag --mode append",
+        docker_url="unix://var/run/docker.sock",
+        network_mode="bridge",
+        environment={
+            # ...env vars if needed...
+        },
+        mount_tmp_dir=False,
+        mounts=[
+            # Mount volumes if needed
+        ],
     )
 
-    upload_postgres = PythonOperator(
-        task_id='upload_gold_to_postgres',
-        python_callable=upload_gold_to_postgres,
-    )
+    skip_upload_gold = DummyOperator(task_id='skip_upload_gold')
 
-    extract_data >> get_bronze >> get_silver >> get_gold >> upload_postgres
+    end = DummyOperator(task_id='end')
+
+    # DAG dependencies
+    start >> branch_crawler
+    branch_crawler >> [run_crawler_jvs, run_crawler_ag, skip_crawler]
+    [run_crawler_jvs, run_crawler_ag, skip_crawler] >> build_pipeline
+    build_pipeline >> branch_upload
+    branch_upload >> [upload_gold_jvs, upload_gold_ag, skip_upload_gold]
+    [upload_gold_jvs, upload_gold_ag, skip_upload_gold] >> end
