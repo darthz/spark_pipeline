@@ -12,9 +12,11 @@ data_inicial = "2010-01-01"
 data_final = date.today().strftime("%Y-%m-%d")
 
 # # # 4. Consulta a API
-empresas_ativas = ['ag', 'jvs']
-for empresa in empresas_ativas:
-    dados_api = get_perdcomp_for_cnpjs(data_inicial, filename=f"cnpjs_{empresa}.txt")
+# empresas_ativas = ['ag', 'jvs']
+# for empresa in empresas_ativas:
+#     dados_api = get_perdcomp_for_cnpjs(data_inicial, filename=f"cnpjs_{empresa}.txt")
+
+dados_api = get_perdcomp_for_cnpjs(data_inicial, filename="cnpjs_jvs.txt")
 
 # from pandas import DataFrame
 

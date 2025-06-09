@@ -95,8 +95,8 @@ def get_perdcomp_for_cnpjs(data_inicial, filename, data_final=None, save_json=Tr
             json.dump(saida_json, f, indent=2)
         print("Arquivo resultado_cnpjs.json salvo com sucesso.")
     
-    df_results = pd.DataFrame(results)
-    df_results["provedor"] = filename.upper()
+    # df_results = pd.DataFrame(results)
+    # df_results["provedor"] = filename.upper()
 
 
     return results

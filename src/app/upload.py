@@ -57,6 +57,6 @@ def upload_gold_to_postgres(
 
 # Example usage:
 # Full load (replace)
-upload_gold_to_postgres(mode="replace", table_name="bahia_perdcomp")
+upload_gold_to_postgres(mode="replace", table_name="gold_jvs")
 # Append
 # upload_gold_to_postgres(mode="append")

@@ -59,7 +59,7 @@ def read_delta_silver(silver_filename="perdcomp_silver"):
         spark.stop()
 
 # Exemplo de uso:
-read_delta_silver()
+# read_delta_silver()
 
 def show_distinct_perdcomps_from_silver(silver_filename="perdcomp_silver"):
     """
@@ -136,9 +136,10 @@ def ler_parquet(filename="perdcomp_bronze.parquet"):
         df = pd.read_parquet(bronze_path)
         print("✅ Arquivo lido com sucesso. Preview:")
         print(df.columns)
+        print(df)
         return df
     except Exception as e:
         print(f"❌ Erro ao ler o arquivo: {e}")
         return None
     
-# ler_parquet()
+ler_parquet()
